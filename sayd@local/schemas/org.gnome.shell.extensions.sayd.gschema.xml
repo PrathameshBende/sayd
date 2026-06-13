@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.sayd"
+          path="/org/gnome/shell/extensions/sayd/">
+
+    <key name="toggle-recording" type="as">
+      <default>["&lt;Super&gt;h"]</default>
+      <summary>Toggle recording hotkey</summary>
+      <description>Keybinding to start/stop recording.</description>
+    </key>
+
+    <key name="model" type="s">
+      <default>"small.en"</default>
+      <summary>Whisper model name</summary>
+      <description>faster-whisper model to use (e.g. tiny.en, base.en, small.en, medium.en, large-v3).</description>
+    </key>
+
+    <key name="input-device" type="s">
+      <default>""</default>
+      <summary>Input device name or index</summary>
+      <description>Substring of the mic name, or a numeric device index. Empty = system default.</description>
+    </key>
+
+    <key name="chunk-seconds" type="d">
+      <default>3.5</default>
+      <summary>Audio chunk duration (seconds)</summary>
+      <description>How many seconds of audio to accumulate before transcribing.</description>
+    </key>
+
+    <key name="idle-timeout-never" type="b">
+      <default>false</default>
+      <summary>Never auto-shutdown</summary>
+      <description>If true, the daemon never auto-shuts down due to inactivity.</description>
+    </key>
+
+    <key name="idle-timeout-minutes" type="i">
+      <default>15</default>
+      <summary>Idle timeout (minutes)</summary>
+      <description>Minutes of inactivity before the daemon auto-shuts down. Ignored if idle-timeout-never is true.</description>
+    </key>
+
+    <key name="cpu-fallback" type="b">
+      <default>true</default>
+      <summary>CPU fallback</summary>
+      <description>Fall back to CPU if GPU/CUDA is unavailable. If false and CUDA fails, the daemon exits.</description>
+    </key>
+
+    <key name="color-idle" type="s">
+      <default>"#ffffff"</default>
+      <summary>Icon color (idle)</summary>
+    </key>
+
+    <key name="color-recording" type="s">
+      <default>"#ff5050"</default>
+      <summary>Icon color (recording)</summary>
+    </key>
+
+    <key name="color-loading" type="s">
+      <default>"#d0a000"</default>
+      <summary>Icon color (loading)</summary>
+    </key>
+
+  </schema>
+</schemalist>

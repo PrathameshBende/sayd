@@ -1,0 +1,9 @@
+{
+  "uuid": "sayd@local",
+  "name": "sayd",
+  "description": "Real-time speech-to-text for GNOME Wayland. Press Super+H to dictate into any text field.",
+  "shell-version": ["47", "48", "49", "50"],
+  "url": "https://github.com/zorro/sayd",
+  "version": 1,
+  "settings-schema": "org.gnome.shell.extensions.sayd"
+}

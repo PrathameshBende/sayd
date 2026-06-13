@@ -1,0 +1,25 @@
+/* sayd - topbar indicator styles
+ * Colors are applied dynamically via inline style from extension.js
+ * so that user color preferences from prefs take effect immediately.
+ */
+
+.sayd-indicator-icon {
+    icon-size: 16px;
+}
+
+/* Opacity states — colors set inline from GSettings */
+.sayd-not-running {
+    opacity: 0.4;
+}
+
+.sayd-loading {
+    opacity: 0.75;
+}
+
+.sayd-idle {
+    opacity: 1.0;
+}
+
+.sayd-recording {
+    opacity: 1.0;
+}
