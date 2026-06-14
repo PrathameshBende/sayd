@@ -33,7 +33,7 @@ Optional for GPU transcription:
 ## Installation
 
 ```bash
-git clone https://github.com/zorro/sayd.git
+git clone https://github.com/PrathameshBende/sayd.git
 cd sayd
 chmod +x setup.sh
 ./setup.sh
