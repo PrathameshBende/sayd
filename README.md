@@ -1,6 +1,6 @@
 # sayd
 
-**Offline speech-to-text for Fedora GNOME Wayland with a global Super+H hotkey.**
+**Win+H-style speech-to-text for Fedora GNOME Wayland.**
 
 Press **Super+H**, speak, press **Super+H** again — transcribed text appears in whatever window has focus. Powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) running entirely on your machine. No cloud, no subscription.
 
@@ -33,7 +33,7 @@ Optional for GPU transcription:
 ## Installation
 
 ```bash
-git clone https://github.com/PrathameshBende/sayd.git
+git clone https://github.com/zorro/sayd.git
 cd sayd
 chmod +x setup.sh
 ./setup.sh
@@ -109,7 +109,7 @@ echo "reload-config" | socat - UNIX-CONNECT:~/.local/share/sayd/control.sock
 
 ```
 ~/.local/share/sayd/
-  sayd-daemon.py        # the daemon
+  sayd-daemon.py   # the daemon
   launch-daemon.sh      # wrapper that sets LD_LIBRARY_PATH for CUDA pip libs
   venv/                 # Python virtualenv
   daemon.log            # rotating log (1 MB max)

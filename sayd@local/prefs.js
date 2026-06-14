@@ -311,6 +311,208 @@ export default class saydPreferences extends ExtensionPreferences {
         addColorRow(colorGroup, settings, 'color-loading', _('Loading'));
 
         // -----------------------------------------------------------
+        // Page: Logs (real-time, in-app, nothing stored to disk)
+        // -----------------------------------------------------------
+        const logsPage = new Adw.PreferencesPage({
+            title: _('Logs'),
+            icon_name: 'utilities-terminal-symbolic',
+        });
+        window.add(logsPage);
+
+        const logsGroup = new Adw.PreferencesGroup({
+            title: _('Live Log Viewer'),
+            description: _(
+                'Logs are never stored on disk. Press \u201cStart\u201d to stream ' +
+                'live output from the daemon. Press \u201cStop\u201d when done.'),
+        });
+        logsPage.add(logsGroup);
+
+        // ---- ScrolledWindow with a TextView inside a box ----
+        const scrolled = new Gtk.ScrolledWindow({
+            height_request: 320,
+            vexpand: true,
+            hscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+            vscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
+        });
+
+        const logBuffer = new Gtk.TextBuffer();
+        const logView = new Gtk.TextView({
+            buffer: logBuffer,
+            editable: false,
+            cursor_visible: false,
+            monospace: true,
+            wrap_mode: Gtk.WrapMode.WORD_CHAR,
+        });
+        scrolled.set_child(logView);
+
+        // Wrap the scroll view in a plain row so it sits inside the group.
+        const logViewRow = new Adw.ActionRow();
+        // ActionRow doesn't accept arbitrary children in a clean way,
+        // so we use a PreferencesGroup with a plain Gtk.Box instead.
+        logsGroup.add(logViewRow);
+
+        // Replace the ActionRow with a plain box row by building a separate
+        // group that holds just the scroll widget.
+        const logScrollGroup = new Adw.PreferencesGroup();
+        logsPage.add(logScrollGroup);
+
+        const logBox = new Gtk.Box({
+            orientation: Gtk.Orientation.VERTICAL,
+            margin_top: 6,
+            margin_bottom: 6,
+            margin_start: 12,
+            margin_end: 12,
+        });
+        logBox.append(scrolled);
+        logScrollGroup.add(logBox);
+
+        // Remove the empty placeholder row we added to logsGroup.
+        logsGroup.remove(logViewRow);
+
+        // ---- Control buttons ----
+        const buttonBox = new Gtk.Box({
+            orientation: Gtk.Orientation.HORIZONTAL,
+            spacing: 8,
+            halign: Gtk.Align.END,
+            margin_top: 4,
+            margin_bottom: 4,
+            margin_start: 12,
+            margin_end: 12,
+        });
+
+        const startLogButton = new Gtk.Button({
+            label: _('Start'),
+            css_classes: ['suggested-action'],
+            valign: Gtk.Align.CENTER,
+        });
+        const stopLogButton = new Gtk.Button({
+            label: _('Stop'),
+            sensitive: false,
+            valign: Gtk.Align.CENTER,
+        });
+        const clearLogButton = new Gtk.Button({
+            label: _('Clear'),
+            valign: Gtk.Align.CENTER,
+        });
+
+        buttonBox.append(clearLogButton);
+        buttonBox.append(startLogButton);
+        buttonBox.append(stopLogButton);
+
+        const buttonGroup = new Adw.PreferencesGroup();
+        logsPage.add(buttonGroup);
+        buttonGroup.add(buttonBox);
+
+        // ---- Log streaming state ----
+        let _logConnection = null;
+        let _logCancellable = null;
+        let _logStreaming = false;
+
+        const appendLog = (text) => {
+            const iter = logBuffer.get_end_iter();
+            logBuffer.insert(iter, text, -1);
+            // Auto-scroll to bottom.
+            const endMark = logBuffer.create_mark(null, logBuffer.get_end_iter(), false);
+            logView.scroll_mark_onscreen(endMark);
+            logBuffer.delete_mark(endMark);
+        };
+
+        const stopLogStream = () => {
+            _logStreaming = false;
+            if (_logCancellable) {
+                _logCancellable.cancel();
+                _logCancellable = null;
+            }
+            if (_logConnection) {
+                try { _logConnection.close(null); } catch (_e) {}
+                _logConnection = null;
+            }
+            startLogButton.sensitive = true;
+            stopLogButton.sensitive = false;
+            appendLog('[Log stream stopped]\n');
+        };
+
+        const startLogStream = () => {
+            if (_logStreaming)
+                return;
+
+            // Check daemon is reachable first.
+            const check = sendCommandSync('status');
+            if (check === null) {
+                appendLog('[Daemon not running — start recording once to launch it, then try again]\n');
+                return;
+            }
+
+            _logCancellable = new Gio.Cancellable();
+            try {
+                const socketClient = new Gio.SocketClient();
+                const address = new Gio.UnixSocketAddress({path: SOCKET_PATH});
+                _logConnection = socketClient.connect(address, _logCancellable);
+
+                // Send the log-start command.
+                const out = _logConnection.get_output_stream();
+                out.write_all('log-start\n', _logCancellable);
+
+                // Read the "ok\n" acknowledgement line.
+                const din = new Gio.DataInputStream({
+                    base_stream: _logConnection.get_input_stream(),
+                });
+                const [ack] = din.read_line_utf8(_logCancellable);
+                if (!ack || ack.trim() !== 'ok') {
+                    appendLog('[Unexpected ack from daemon — aborting]\n');
+                    stopLogStream();
+                    return;
+                }
+
+                _logStreaming = true;
+                startLogButton.sensitive = false;
+                stopLogButton.sensitive = true;
+                appendLog('[Log stream started — live output from daemon]\n');
+
+                // Read lines asynchronously so we don't block the UI.
+                const readNextLine = () => {
+                    if (!_logStreaming)
+                        return;
+                    din.read_line_async(
+                        GLib.PRIORITY_DEFAULT,
+                        _logCancellable,
+                        (src, res) => {
+                            try {
+                                const [line] = src.read_line_finish_utf8(res);
+                                if (line === null) {
+                                    // EOF — daemon closed connection.
+                                    stopLogStream();
+                                    return;
+                                }
+                                appendLog(line + '\n');
+                                readNextLine();
+                            } catch (_e) {
+                                // Cancelled or error — stop cleanly.
+                                if (_logStreaming)
+                                    stopLogStream();
+                            }
+                        },
+                    );
+                };
+                readNextLine();
+
+            } catch (e) {
+                appendLog(`[Failed to connect: ${e.message}]\n`);
+                stopLogStream();
+            }
+        };
+
+        startLogButton.connect('clicked', () => startLogStream());
+        stopLogButton.connect('clicked', () => stopLogStream());
+        clearLogButton.connect('clicked', () => logBuffer.set_text('', 0));
+
+        // Stop streaming if the preferences window is closed.
+        window.connect('close-request', () => {
+            stopLogStream();
+            return false;
+        });
+
+        // -----------------------------------------------------------
         // Save config.json + notify daemon whenever any relevant
         // setting changes.
         // -----------------------------------------------------------

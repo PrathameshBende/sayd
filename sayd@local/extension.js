@@ -21,6 +21,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 
 const SOCKET_PATH = GLib.build_filenamev([
     GLib.get_home_dir(), '.local', 'share', 'sayd', 'control.sock',
@@ -447,12 +448,30 @@ export default class saydExtension extends Extension {
     // -----------------------------------------------------------------
 
     showAbout() {
-        Main.notify(
-            'sayd',
-            'Local speech-to-text daemon controller.\n' +
-            'Left-click or Super+H: toggle recording.\n' +
-            'Right-click \u2192 Quit & Free GPU: shut down the daemon and free GPU/CPU memory.\n' +
-            'Daemon: ~/.local/share/sayd/sayd-daemon.py',
-        );
+        // Use MessageTray which works reliably across GNOME versions.
+        try {
+            const source = new MessageTray.Source({
+                title: 'sayd',
+                icon_name: 'microphone-sensitivity-high-symbolic',
+            });
+            Main.messageTray.add(source);
+
+            const notification = new MessageTray.Notification({
+                source,
+                title: 'sayd \u2014 Speech to Text',
+                body:
+                    'Left-click or Super+H: toggle recording.\n' +
+                    'Right-click \u2192 Quit & Free GPU: shut down the daemon.\n' +
+                    'Open Settings to configure the model, audio device, and more.',
+            });
+            notification.setTransient(true);
+            source.addNotification(notification);
+        } catch (_e) {
+            // Fallback for very old GNOME Shell builds.
+            Main.notify('sayd',
+                'Left-click or Super+H: toggle recording.\n' +
+                'Right-click \u2192 Quit & Free GPU: shut down the daemon.\n' +
+                'Open Settings to configure the model, audio device, and more.');
+        }
     }
 }

@@ -30,7 +30,6 @@ import queue
 import subprocess
 import signal
 import logging
-import logging.handlers
 from pathlib import Path
 
 import numpy as np
@@ -46,7 +45,6 @@ XDG_CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"
 APP_DIR     = XDG_DATA_HOME   / "sayd"
 CONFIG_PATH = XDG_CONFIG_HOME / "sayd" / "config.json"
 SOCKET_PATH = APP_DIR / "control.sock"
-LOG_PATH    = APP_DIR / "daemon.log"
 
 APP_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +88,7 @@ def cfg(key):
 
 
 # ---------------------------------------------------------------------------
-# Logging — rotating file + stdout; live log streaming via a handler
+# Logging — stdout only + live streaming; NO file logging
 # ---------------------------------------------------------------------------
 
 class _LiveStreamHandler(logging.Handler):
@@ -121,15 +119,20 @@ class _LiveStreamHandler(logging.Handler):
             for s in dead:
                 self._sinks = [x for x in self._sinks if x is not s]
 
+    @property
+    def has_sinks(self):
+        with self._lock:
+            return bool(self._sinks)
+
 
 _live_handler = _LiveStreamHandler()
 _live_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 
+# Only log to stdout and live streaming clients — no file handler at all.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.handlers.RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=1),
         logging.StreamHandler(sys.stdout),
         _live_handler,
     ],
@@ -263,10 +266,10 @@ def inject_text(text):
 SAMPLE_RATE = 16000
 
 class SaydDaemon:
-    STATE_LOADING  = "loading"
-    STATE_IDLE     = "idle"
+    STATE_LOADING   = "loading"
+    STATE_IDLE      = "idle"
     STATE_RECORDING = "recording"
-    STATE_STOPPING = "stopping"
+    STATE_STOPPING  = "stopping"
 
     def __init__(self):
         self.state      = self.STATE_LOADING
@@ -324,7 +327,7 @@ class SaydDaemon:
     def toggle_recording(self):
         state = self.get_state()
         if state == self.STATE_RECORDING:
-            self.stop_recording()
+            self._stop_recording_async()
         elif state == self.STATE_IDLE:
             self.start_recording()
         else:
@@ -354,21 +357,54 @@ class SaydDaemon:
         self.transcribe_thread.start()
         log.info("Recording started (device_idx=%s, capture_rate=%s)", device_idx, self._capture_rate)
 
-    def stop_recording(self):
+    def _stop_recording_async(self):
+        """
+        Signal the recording/transcription threads to stop without blocking
+        the socket handler (and therefore without freezing the shell extension
+        or the desktop). The transition to IDLE happens inside the background
+        thread once it has cleanly wound down.
+        """
         if self.get_state() != self.STATE_RECORDING:
             return
-        log.info("Stopping recording...")
+        log.info("Stopping recording (async)...")
+        self.set_state(self.STATE_STOPPING)
         self.stop_recording_event.set()
         if self.stream:
-            try: self.stream.stop(); self.stream.close()
-            except Exception: pass
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+
+        def _wait_and_idle():
+            if self.record_thread:
+                self.record_thread.join(timeout=5)
+            if self.transcribe_thread:
+                self.transcribe_thread.join(timeout=12)
+            self.set_state(self.STATE_IDLE)
+            self.last_activity_time = time.time()
+            log.info("Recording stopped.")
+
+        threading.Thread(target=_wait_and_idle, daemon=True, name="stop-waiter").start()
+
+    def stop_recording(self):
+        """Synchronous stop — used only during daemon shutdown."""
+        if self.get_state() not in (self.STATE_RECORDING, self.STATE_STOPPING):
+            return
+        self.stop_recording_event.set()
+        if self.stream:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
             self.stream = None
         if self.record_thread:
-            self.record_thread.join(timeout=3)
+            self.record_thread.join(timeout=5)
         if self.transcribe_thread:
-            self.transcribe_thread.join(timeout=10)
+            self.transcribe_thread.join(timeout=12)
         self.set_state(self.STATE_IDLE)
-        self.last_activity_time = time.time()
 
     def _record_loop(self, device_idx):
         chunk_frames = int(cfg("chunk_seconds") * self._capture_rate)
@@ -489,6 +525,8 @@ class ControlHandler(socketserver.BaseRequestHandler):
                     self._respond(daemon.STATE_LOADING)
                     return
                 daemon.toggle_recording()
+                # Return immediately — async stop means we may still be in
+                # STOPPING state; that's fine, the extension polls for IDLE.
                 self._respond(daemon.get_state())
 
             elif cmd == "quit":
@@ -508,9 +546,9 @@ class ControlHandler(socketserver.BaseRequestHandler):
 
             elif cmd == "log-start":
                 # Keep this connection open and stream log lines to it.
+                # Logs are NOT stored anywhere — only live-streamed here.
                 self._respond("ok")
                 _live_handler.add_sink(self.request)
-                # Block until the client disconnects.
                 try:
                     while True:
                         r = self.request.recv(1)
