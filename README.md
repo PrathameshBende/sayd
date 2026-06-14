@@ -77,8 +77,7 @@ The daemon tries CUDA first and falls back to CPU automatically. CPU transcripti
 For GPU transcription, install the CUDA libraries into the venv:
 
 ```bash
-~/.local/share/sayd/venv/bin/pip install \
-    nvidia-cublas-cu12 nvidia-cudnn-cu12
+~/.local/share/sayd/venv/bin/pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
 sayd tries CUDA first and falls back to CPU automatically if CUDA is unavailable (configurable via the "Fall back to CPU" setting).
