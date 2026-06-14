@@ -48,6 +48,9 @@ python3 -m venv "$DAEMON_DIR/venv"
 "$DAEMON_DIR/venv/bin/pip" install --upgrade pip -q
 "$DAEMON_DIR/venv/bin/pip" install faster-whisper sounddevice numpy -q
 
+echo "==> Installing CUDA pip packages (required for GPU transcription)"
+"$DAEMON_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12 -q
+
 # ---------------------------------------------------------------------------
 # launch-daemon.sh  (written here so the python version is always correct)
 # ---------------------------------------------------------------------------
@@ -89,6 +92,40 @@ LAUNCH
 chmod +x "$DAEMON_DIR/launch-daemon.sh"
 
 # ---------------------------------------------------------------------------
+# /dev/uinput permissions (udev rule)
+# ---------------------------------------------------------------------------
+
+echo "==> Installing udev rule for /dev/uinput"
+sudo tee /etc/udev/rules.d/99-uinput.rules > /dev/null << 'UDEV'
+KERNEL=="uinput", GROUP="input", MODE="0660"
+UDEV
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# ---------------------------------------------------------------------------
+# Add user to the input group
+# ---------------------------------------------------------------------------
+
+echo "==> Adding $USER to the 'input' group"
+sudo gpasswd -a "$USER" input
+
+# ---------------------------------------------------------------------------
+# ydotoold autostart
+# ---------------------------------------------------------------------------
+
+echo "==> Creating ydotoold autostart entry"
+mkdir -p "$HOME/.config/autostart"
+cat > "$HOME/.config/autostart/ydotoold.desktop" << 'AUTOSTART'
+[Desktop Entry]
+Type=Application
+Name=ydotoold
+Exec=ydotoold
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+AUTOSTART
+
+# ---------------------------------------------------------------------------
 # GNOME Shell extension
 # ---------------------------------------------------------------------------
 
@@ -114,8 +151,10 @@ cat <<'EOF'
 sayd installed successfully.
 
 Next steps:
-  1. Log out and back in so GNOME Shell loads the extension.
-     (Wayland doesn't support shell restarts without a re-login.)
+  1. Log out and back in — this is required for:
+       • The 'input' group change to take effect (ydotool needs it)
+       • GNOME Shell to load the extension (Wayland doesn't support
+         shell restarts without a re-login)
 
   2. Press Super+H — the daemon starts in the background.
      First launch downloads the Whisper model (~250 MB) and may
@@ -135,14 +174,7 @@ Next steps:
 
 Files:
   Daemon:  ~/.local/share/sayd/
-  Log:     ~/.local/share/sayd/daemon.log
   Config:  ~/.config/sayd/config.json
   Socket:  ~/.local/share/sayd/control.sock
-
-GPU note:
-  The daemon tries CUDA first and falls back to CPU automatically.
-  For GPU transcription, install the CUDA pip packages:
-    ~/.local/share/sayd/venv/bin/pip install \
-        nvidia-cublas-cu12 nvidia-cudnn-cu12
 ==============================================================
 EOF
